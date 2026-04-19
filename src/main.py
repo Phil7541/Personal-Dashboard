@@ -9,14 +9,16 @@ import logging
 from waveshare_epd import epd7in5h
 import time
 
-
 import renderer
+import api
 
 epd = epd7in5h.EPD()
 
 epd.init()
 epd.Clear()
-image = renderer.render_dashboard()
+
+data = api.return_data()
+image = renderer.render_dashboard(data)
 
 time.sleep(3)
 

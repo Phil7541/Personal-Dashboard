@@ -48,7 +48,7 @@ MEDIUM_ICON_SIZE = (30, 30)
 SMALL_ICON_SIZE = (20, 20)
 
 
-FORECAST_COLUMN_WIDTH = 90
+FORECAST_COLUMN_WIDTH = 100
 CALENDAR_ITEM_HEIGHT = MEDIUM_ICON_SIZE[1] + PADDING + BODY_FONT_SIZE + PADDING
 
 
@@ -127,7 +127,7 @@ def wrap_text(draw, text, font, max_width):
     return lines
 
 
-def draw_calendar_event(draw, image, x, y, max_width, name, start, end):
+def draw_calendar_event(draw, image, x, y, max_width, name, start, end, is_all_day=False):
     calendar_icon = load_icon(
         os.path.join(BASE_DIR, "assets", "icons", "calendar.png"),
         MEDIUM_ICON_SIZE,
@@ -146,18 +146,21 @@ def draw_calendar_event(draw, image, x, y, max_width, name, start, end):
         draw.text((text_x, current_y), line, font=HEADER_FONT_SMALL, fill="black")
         current_y += HEADER_FONT_SMALL_SIZE + PADDING
 
-    draw.text((text_x, current_y), f"{start} - {end}", font=BODY_FONT, fill="black")
-    current_y += BODY_FONT_SIZE
+    if is_all_day:
+        draw.text((text_x, current_y), "All day", font=BODY_FONT, fill="black")
+    else:
+        draw.text((text_x, current_y), f"{start} - {end}", font=BODY_FONT, fill="black")
+    current_y += BODY_FONT_SIZE + PADDING
 
     content_height = current_y - y
     return max(content_height, MEDIUM_ICON_SIZE[1])
 
 
-def draw_weather_box(draw, image):
+def draw_weather_box(draw, image, data):
     x1, y1, x2, y2 = get_box_origin("weather")
 
     weather_icon = load_icon(
-        os.path.join(BASE_DIR, "assets", "icons", "weather", "sun.png"),
+        os.path.join(BASE_DIR, "assets", "icons", "weather", f"{data['condition']}.png"),
         LARGE_ICON_SIZE,
     )
 
@@ -179,18 +182,22 @@ def draw_weather_box(draw, image):
     paste_icon(image, weather_icon, x1 + BOX_PADDING, y1 + BOX_PADDING)
 
     draw.text(
-        (x1 + BOX_PADDING, y2 - BOX_PADDING - HEADER_FONT_MEDIUM_SIZE),
-        "25°",
+        (x1 + BOX_PADDING + (LARGE_ICON_SIZE[0] // 2), y2 - BOX_PADDING - HEADER_FONT_MEDIUM_SIZE),
+        f"{data['current_temp']}°",
+        anchor="ma",
         font=HEADER_FONT_MEDIUM,
         fill="black",
     )
+    
+    maxbbox = draw.textbbox((0, 0), f"{data['max_temp']}", font=BODY_FONT)
+    minbbox = draw.textbbox((0, 0), f"{data['min_temp']}", font=BODY_FONT)
 
-    draw.text((text_left, y1 + BOX_PADDING), f"{MAX_TEMP}°", font=BODY_FONT, fill="black")
+    draw.text((text_left, y1 + BOX_PADDING), f"{data['max_temp']}°", font=BODY_FONT, fill="black")
 
     draw.line(
         [
             (text_left, y1 + BOX_PADDING + BODY_FONT_SIZE + (PADDING // 2)),
-            (text_left + 40, y1 + BOX_PADDING + BODY_FONT_SIZE + (PADDING // 2)),
+            (text_left + max(maxbbox[2] - maxbbox[0], minbbox[2] - minbbox[0]), y1 + BOX_PADDING + BODY_FONT_SIZE + (PADDING // 2)),
         ],
         fill="black",
         width=BOX_BORDER_WEIGHT,
@@ -198,43 +205,39 @@ def draw_weather_box(draw, image):
 
     draw.text(
         (text_left, y1 + BOX_PADDING + BODY_FONT_SIZE + PADDING),
-        f"{MIN_TEMP}°",
+        f"{data['min_temp']}°",
         font=BODY_FONT,
         fill="black",
     )
 
     rain_x = x1 + BOX_PADDING + LARGE_ICON_SIZE[0] + BOX_PADDING
-    rain_y = y2 - BOX_PADDING - SMALL_ICON_SIZE[1]
+    rain_y = y2 - BOX_PADDING
 
-    paste_icon(image, rain_icon, rain_x, rain_y)
+    paste_icon(image, rain_icon, rain_x, rain_y - SMALL_ICON_SIZE[1])
 
     draw.text(
         (rain_x + SMALL_ICON_SIZE[0] + PADDING, rain_y - BODY_FONT_SIZE),
-        "60%",
+        f"{data['rain_chance']}%",
         font=BODY_FONT,
         fill="black",
     )
 
     base_x = x2 - BOX_PADDING
 
-    for i, (t, w, temp, rain) in enumerate([
-        ("15:00", "cloud", 24, 40),
-        ("16:00", "cloud", 24, 35),
-        ("17:00", "cloud-sun", 23, 30),
-        ("18:00", "cloud-sun", 21, 20),
-        ("19:00", "cloud-sun", 20, 0),
-    ]):
-        col_x = base_x - (FORECAST_COLUMN_WIDTH * (5 - i)) - (PADDING * (2 * (4 - i)))
+    hours = 0
 
-        draw_forecast_column(draw, image, col_x, y1 + BOX_PADDING, t, w, temp, rain, rain_icon)
+    for i in data['forecast']:
+        col_x = base_x - (FORECAST_COLUMN_WIDTH * (5 - hours)) - (PADDING * (2 * (4 - hours)))
+        draw_forecast_column(draw, image, col_x, y1 + BOX_PADDING, i['time'], i['condition'], i['temp'], i['rain'], rain_icon)
 
-        if i < 4:
-            line_x = base_x - (FORECAST_COLUMN_WIDTH * (4 - i)) - (PADDING * (2 * (4 - i)))
+        if hours < 4:
+            line_x = base_x - (FORECAST_COLUMN_WIDTH * (4 - hours)) - (PADDING * (2 * (4 - hours)))
             draw.line(
                 [(line_x, y1 + BOX_PADDING), (line_x, y2 - BOX_PADDING)],
                 fill="black",
                 width=BOX_BORDER_WEIGHT,
             )
+        hours += 1
 
 
 def draw_time_box(draw):
@@ -257,7 +260,7 @@ def draw_time_box(draw):
     )
 
 
-def draw_calendar_box(draw, image):
+def draw_calendar_box(draw, image, data):
     x1, y1, x2, y2 = get_box_origin("calendar")
 
     draw.rounded_rectangle(
@@ -275,15 +278,7 @@ def draw_calendar_box(draw, image):
 
     current_y = content_y
 
-    events = [
-        ("Meeting with Bob about something quite long", "10:00", "11:00"),
-        ("Lunch with Alice", "12:00", "13:00"),
-        ("Project sync with team", "15:00", "16:30"),
-        ("Dinner with Carol which might also be long text", "19:00", "20:00"),
-        ("Another event that probably won't fit", "21:00", "22:00"),
-    ]
-
-    if not events:
+    if not data:
         icon = load_icon(
             os.path.join(BASE_DIR, "assets", "icons", "calendar_big.png"),
             HUGE_ICON_SIZE,
@@ -297,19 +292,21 @@ def draw_calendar_box(draw, image):
         )
         return
 
-    for i, (name, start, end) in enumerate(events):
+    events = 0
+
+    for i in data:
         remaining_height = (content_y + content_height) - current_y
         if remaining_height < MEDIUM_ICON_SIZE[1]:
             break
-
+        
         used_height = draw_calendar_event(
-            draw, image, content_x, current_y, content_width, name, start, end
+            draw, image, content_x, current_y, content_width, i['title'], i['start'], i['end'], i['all_day']
         )
 
         current_y += used_height
 
-        if i < len(events) - 1:
-            next_name = events[i + 1][0]
+        if events < len(data) - 1:
+            next_name = data[events + 1]['title']
 
             next_lines = wrap_text(
                 draw,
@@ -337,9 +334,10 @@ def draw_calendar_box(draw, image):
                 current_y += BOX_BORDER_WEIGHT + PADDING
             else:
                 break
+        events += 1
 
 
-def draw_room_info_box(draw, image):
+def draw_room_info_box(draw, image, data):
     x1, y1, x2, y2 = get_box_origin("room_info")
 
     temp_icon = load_icon(
@@ -360,40 +358,53 @@ def draw_room_info_box(draw, image):
         width=BOX_BORDER_WEIGHT,
     )
 
-    paste_icon(image, temp_icon, x1 + BOX_PADDING, y1 + BOX_PADDING)
-    draw.text(
-        (x1 + BOX_PADDING + MEDIUM_ICON_SIZE[0] + PADDING, y1 + BOX_PADDING),
-        "22.1°",
-        font=BODY_FONT,
-        fill="black",
-    )
+    if data['temperature'] is None or data['humidity'] is None:
+        draw.text(
+            ((x2 - x1) // 2 + x1, (y2 - y1) // 2 + y1),
+            "No data",
+            anchor="mm",
+            font=HEADER_FONT,
+            fill="black",
+        )
+        return
+    else:
+        paste_icon(image, temp_icon, x1 + BOX_PADDING, y1 + BOX_PADDING)
+        draw.text(
+            (x1 + BOX_PADDING + MEDIUM_ICON_SIZE[0] + PADDING, y1 + BOX_PADDING),
+            f"{data['temperature']:.1f}°",
+            font=BODY_FONT,
+            fill="black",
+        )
 
-    paste_icon(
-        image,
-        humidity_icon,
-        x1 + BOX_PADDING,
-        y1 + BOX_PADDING + MEDIUM_ICON_SIZE[1] + PADDING,
-    )
-
-    draw.text(
-        (
-            x1 + BOX_PADDING + MEDIUM_ICON_SIZE[0] + PADDING,
+        paste_icon(
+            image,
+            humidity_icon,
+            x1 + BOX_PADDING,
             y1 + BOX_PADDING + MEDIUM_ICON_SIZE[1] + PADDING,
-        ),
-        "45%",
-        font=BODY_FONT,
-        fill="black",
-    )
+        )
+
+        draw.text(
+            (
+                x1 + BOX_PADDING + MEDIUM_ICON_SIZE[0] + PADDING,
+                y1 + BOX_PADDING + MEDIUM_ICON_SIZE[1] + PADDING,
+            ),
+            f"{data['humidity']}%",
+            font=BODY_FONT,
+            fill="black",
+        )
 
 
-def draw_system_info_box(draw, image):
+def draw_system_info_box(draw, image, data):
     x1, y1, x2, y2 = get_box_origin("system_info")
 
     BAR_WIDTH = 70
 
-    cpu_fill = int((34 / 100) * BAR_WIDTH)
-    mem_fill = int((68 / 100) * BAR_WIDTH)
-
+    cpu_fill = int((data['cpu_usage'] / 100) * BAR_WIDTH)
+    mem_fill = int((data['memory_usage'] / 100) * BAR_WIDTH)
+    
+    cpu_radius = min(BOX_BORDER_RADIUS, cpu_fill // 2)
+    mem_radius = min(BOX_BORDER_RADIUS, mem_fill // 2)
+    
     cpu_icon = load_icon(os.path.join(BASE_DIR, "assets", "icons", "system", "cpu.png"), MEDIUM_ICON_SIZE)
     mem_icon = load_icon(os.path.join(BASE_DIR, "assets", "icons", "system", "memory.png"), MEDIUM_ICON_SIZE)
     temp_icon = load_icon(os.path.join(BASE_DIR, "assets", "icons", "system", "temperature.png"), MEDIUM_ICON_SIZE)
@@ -417,14 +428,14 @@ def draw_system_info_box(draw, image):
 
     draw.rounded_rectangle(
         [(bar_x, bar_y), (bar_x + BAR_WIDTH, bar_y + MEDIUM_ICON_SIZE[1])],
-        radius=BOX_BORDER_RADIUS,
+        radius=cpu_radius,
         outline="black",
         width=BOX_BORDER_WEIGHT,
     )
 
     draw.rounded_rectangle(
         [(bar_x, bar_y), (bar_x + cpu_fill, bar_y + MEDIUM_ICON_SIZE[1])],
-        radius=BOX_BORDER_RADIUS,
+        radius=cpu_radius,
         fill="black",
     )
 
@@ -435,14 +446,14 @@ def draw_system_info_box(draw, image):
 
     draw.rounded_rectangle(
         [(bar_x, bar_y), (bar_x + BAR_WIDTH, bar_y + MEDIUM_ICON_SIZE[1])],
-        radius=BOX_BORDER_RADIUS,
+        radius=mem_radius,
         outline="black",
         width=BOX_BORDER_WEIGHT,
     )
 
     draw.rounded_rectangle(
         [(bar_x, bar_y), (bar_x + mem_fill, bar_y + MEDIUM_ICON_SIZE[1])],
-        radius=BOX_BORDER_RADIUS,
+        radius=mem_radius,
         fill="black",
     )
 
@@ -453,7 +464,7 @@ def draw_system_info_box(draw, image):
 
     draw.text(
         (bar_x, bar_y),
-        "55°C",
+        f"{data['cpu_temperature']:.1f}°C",
         font=BODY_FONT,
         fill="black",
     )
@@ -463,28 +474,28 @@ def draw_system_info_box(draw, image):
     right_y = y1 + BOX_PADDING
 
     paste_icon(image, clock_icon, right_x, right_y)
-    draw.text((right_x + MEDIUM_ICON_SIZE[0] + PADDING, right_y), "37:42", font=BODY_FONT, fill="black")
+    draw.text((right_x + MEDIUM_ICON_SIZE[0] + PADDING, right_y), f"{data['uptime']}", font=BODY_FONT, fill="black")
 
     right_y += MEDIUM_ICON_SIZE[1] + PADDING
 
     paste_icon(image, wifi_icon, right_x, right_y)
-    draw.text((right_x + MEDIUM_ICON_SIZE[0] + PADDING, right_y), "176", font=BODY_FONT, fill="black")
+    draw.text((right_x + MEDIUM_ICON_SIZE[0] + PADDING, right_y), f"{data['ip_address']}", font=BODY_FONT, fill="black")
 
     right_y += MEDIUM_ICON_SIZE[1] + PADDING
 
     paste_icon(image, disk_icon, right_x, right_y)
-    draw.text((right_x + MEDIUM_ICON_SIZE[0] + PADDING, right_y), "42%", font=BODY_FONT, fill="black")
+    draw.text((right_x + MEDIUM_ICON_SIZE[0] + PADDING, right_y), f"{data['disk_usage']}%", font=BODY_FONT, fill="black")
 
 
-def render_dashboard():
+def render_dashboard(data):
     image = Image.new("RGB", (800, 480), "white")
     draw = ImageDraw.Draw(image)
 
-    draw_weather_box(draw, image)
+    draw_weather_box(draw, image, data["weather"])
     draw_time_box(draw)
-    draw_calendar_box(draw, image)
-    draw_room_info_box(draw, image)
-    draw_system_info_box(draw, image)
+    draw_calendar_box(draw, image, data["calendar_events"])
+    draw_room_info_box(draw, image, data["room_info"])
+    draw_system_info_box(draw, image, data["system_info"])
 
     return image
 
