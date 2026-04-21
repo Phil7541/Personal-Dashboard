@@ -5,3 +5,6 @@ images/
 .vscode/
 examples/
 src/envs/
+.cache.sqlite
+logs/
+lib/*

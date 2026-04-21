@@ -1,25 +1,60 @@
 import sys
 import os
+from datetime import datetime
+import time
+
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WAVESHARE_LIB = os.path.join(BASE_DIR, "lib")
 
 sys.path.append(WAVESHARE_LIB)
 
-import logging
 from waveshare_epd import epd7in5h
-import time
 
 import renderer
 import api
 
-epd = epd7in5h.EPD()
+def setup():
+    epd = epd7in5h.EPD()
+    epd.init()
+    epd.Clear()
+    time.sleep(1)
+    return epd
 
-epd.init()
-epd.Clear()
+def sleep_until_next_minute(offset_seconds=0):
+    now = datetime.now()
+    seconds = now.second + now.microsecond / 1_000_000
 
-data = api.return_data()
-image = renderer.render_dashboard(data)
+    # sleep until (60 - offset)
+    sleep_time = 60 - seconds - offset_seconds
 
-time.sleep(3)
+    if sleep_time < 0:
+        sleep_time += 60  # handle wrap-around
 
-epd.display(epd.getbuffer(image))
+    time.sleep(sleep_time)
+    
+def test_render():
+    data = api.return_data()
+    image = renderer.render_dashboard(data)
+    image.save("dashboard.png")
+
+def test_display():
+    epd = setup()
+    data = api.return_data()
+    image = renderer.render_dashboard(data)
+    epd.display(epd.getbuffer(image))
+
+if __name__ == "__main__":
+    epd = setup()
+
+    while True:
+        sleep_until_next_minute()
+        
+        now = datetime.now()
+
+        if now.minute == 0:
+            api.cache["weather"].get(force_refresh=True)
+
+        api.refresh_all()
+        data = api.return_data()       
+        image = renderer.render_dashboard(data)
+        epd.display(epd.getbuffer(image))

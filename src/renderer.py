@@ -1,7 +1,7 @@
 import os
 from PIL import Image, ImageDraw, ImageFont
-import time
-
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 BOX_COORDINATES = {
     "weather": [(10, 10), (790, 130)],
@@ -105,7 +105,6 @@ def draw_forecast_column(draw, image, x, y, time, weather, temp, rain_chance, ra
         fill="black",
     )
 
-
 def wrap_text(draw, text, font, max_width):
     words = text.split(" ")
     lines = []
@@ -126,8 +125,23 @@ def wrap_text(draw, text, font, max_width):
 
     return lines
 
+def get_calendar_event_height(draw, name, time, max_width):
+    text_width = max_width - MEDIUM_ICON_SIZE[0] - PADDING
 
-def draw_calendar_event(draw, image, x, y, max_width, name, start, end, is_all_day=False):
+    name_lines = wrap_text(draw, name, HEADER_FONT_SMALL, text_width)
+
+    current_height = 0
+
+    # title lines
+    for _ in name_lines:
+        current_height += HEADER_FONT_SMALL_SIZE + PADDING
+
+    # time line
+    current_height += BODY_FONT_SIZE + PADDING
+
+    return max(current_height, MEDIUM_ICON_SIZE[1])
+
+def draw_calendar_event(draw, image, x, y, max_width, name, time):
     calendar_icon = load_icon(
         os.path.join(BASE_DIR, "assets", "icons", "calendar.png"),
         MEDIUM_ICON_SIZE,
@@ -146,10 +160,8 @@ def draw_calendar_event(draw, image, x, y, max_width, name, start, end, is_all_d
         draw.text((text_x, current_y), line, font=HEADER_FONT_SMALL, fill="black")
         current_y += HEADER_FONT_SMALL_SIZE + PADDING
 
-    if is_all_day:
-        draw.text((text_x, current_y), "All day", font=BODY_FONT, fill="black")
-    else:
-        draw.text((text_x, current_y), f"{start} - {end}", font=BODY_FONT, fill="black")
+    draw.text((text_x, current_y), time, font=BODY_FONT, fill="black")
+    
     current_y += BODY_FONT_SIZE + PADDING
 
     content_height = current_y - y
@@ -250,10 +262,12 @@ def draw_time_box(draw):
         outline="black",
         width=BOX_BORDER_WEIGHT,
     )
+    
+    now = datetime.now(ZoneInfo("Europe/London"))
 
     draw.text(
         ((x2 - x1) // 2 + x1, (y2 - y1) // 2 + y1),
-        time.strftime("%H:%M"),
+        now.strftime("%H:%M"),
         anchor="mm",
         font=TIME_FONT,
         fill="black",
@@ -292,32 +306,95 @@ def draw_calendar_box(draw, image, data):
         )
         return
 
-    events = 0
-
-    for i in data:
+    for index, i in enumerate(data):
         remaining_height = (content_y + content_height) - current_y
-        if remaining_height < MEDIUM_ICON_SIZE[1]:
+
+        if "divider" in i:
+            divider_text = i["divider"]
+
+            bbox = draw.textbbox((0, 0), divider_text, font=HEADER_FONT_SMALL)
+            divider_height = bbox[3] - bbox[1]
+
+            # find next real event
+            next_index = index + 1
+            while next_index < len(data) and "divider" in data[next_index]:
+                next_index += 1
+
+            if next_index >= len(data):
+                break
+
+            next_event = data[next_index]
+
+            next_height = get_calendar_event_height(
+                draw,
+                next_event["title"],
+                next_event["time"],
+                content_width
+            )
+
+            required = (
+                divider_height +
+                (PADDING * 3) +
+                BOX_BORDER_WEIGHT +
+                PADDING +
+                next_height
+            )
+
+            if remaining_height < required:
+                break
+
+            # --- draw divider text ---
+            draw.text(
+                (content_x, current_y),
+                divider_text,
+                font=HEADER_FONT_SMALL,
+                fill="black",
+            )
+
+            current_y += divider_height + (PADDING * 3)
+
+            # --- draw line UNDER text ---
+            draw.line(
+                [(content_x, current_y), (content_x + content_width, current_y)],
+                fill="black",
+                width=BOX_BORDER_WEIGHT,
+            )
+
+            current_y += BOX_BORDER_WEIGHT + PADDING
+
+            continue
+
+        # --- normal event ---
+        event_height = get_calendar_event_height(
+            draw,
+            i["title"],
+            i["time"],
+            content_width
+        )
+
+        if remaining_height < event_height:
             break
-        
+
         used_height = draw_calendar_event(
-            draw, image, content_x, current_y, content_width, i['title'], i['start'], i['end'], i['all_day']
+            draw, image, content_x, current_y,
+            content_width, i["title"], i["time"]
         )
 
         current_y += used_height
 
-        if events < len(data) - 1:
-            next_name = data[events + 1]['title']
+        # --- check next event spacing ---
+        next_index = index + 1
+        while next_index < len(data) and "divider" in data[next_index]:
+            next_index += 1
 
-            next_lines = wrap_text(
+        if next_index < len(data):
+            next_event = data[next_index]
+
+            next_height = get_calendar_event_height(
                 draw,
-                next_name,
-                HEADER_FONT_SMALL,
-                content_width - MEDIUM_ICON_SIZE[0] - PADDING,
-            )
-
-            next_height = max(
-                (len(next_lines) * (HEADER_FONT_SMALL_SIZE + PADDING)) + BODY_FONT_SIZE,
-                MEDIUM_ICON_SIZE[1],
+                next_event["title"],
+                next_event["time"],
+                content_width
             )
 
             space_needed = PADDING + BOX_BORDER_WEIGHT + PADDING + next_height
@@ -334,8 +411,6 @@ def draw_calendar_box(draw, image, data):
                 current_y += BOX_BORDER_WEIGHT + PADDING
             else:
                 break
-        events += 1
-
 
 def draw_room_info_box(draw, image, data):
     x1, y1, x2, y2 = get_box_origin("room_info")
@@ -501,5 +576,35 @@ def render_dashboard(data):
 
 
 if __name__ == "__main__":
-    image = render_dashboard()
+    TEST_DATA = {
+        "weather": {
+            "current_temp": 22,
+            "max_temp": 26,
+            "min_temp": 18,
+            "condition": "cloud",
+            "rain_chance": 40,
+            "forecast": [
+                {"time": "13:00", "condition": "cloud", "temp": 22, "rain": 40},
+                {"time": "14:00", "condition": "rain", "temp": 21, "rain": 60},
+                {"time": "15:00", "condition": "sun", "temp": 23, "rain": 10},
+                {"time": "16:00", "condition": "cloud", "temp": 22, "rain": 30},
+                {"time": "17:00", "condition": "rain", "temp": 20, "rain": 80},
+            ],
+        },
+        "calendar_events": [
+            {"title": "Meeting with Bob", "time": "10:00 - 11:00"},
+            {"title": "Lunch with Alice", "time": "12:00 - 13:00"},
+            {"title": "Project deadline", "time": "All Day"},
+        ],
+        "room_info": {"temperature": 21.5, "humidity": 45.2},
+        "system_info": {
+            "cpu_usage": 35.5,
+            "memory_usage": 62.3,
+            "cpu_temperature": 55.2,
+            "uptime": "02:15",
+            "ip_address": "176",
+            "disk_usage": 78.9,
+        },
+    }
+    image = render_dashboard(TEST_DATA)
     image.save(os.path.join(BASE_DIR, "images", "output.png"))

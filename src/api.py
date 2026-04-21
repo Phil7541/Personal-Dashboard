@@ -2,11 +2,13 @@ import sys
 import os
 import time
 import requests
-import psutil
+import openmeteo_requests
+from retry_requests import retry
 from dotenv import load_dotenv
 from icalendar import Calendar
 from datetime import datetime, timezone, timedelta
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo 
+import psutil 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 env_path = os.path.join(BASE_DIR, "envs", "sensor_hub_ip.env")
@@ -14,6 +16,41 @@ env_path = os.path.join(BASE_DIR, "envs", "sensor_hub_ip.env")
 load_dotenv(env_path)
 
 SENSOR_HUB_IP = os.getenv("SENSOR_HUB_IP")
+LOCAL_TZ = ZoneInfo("Europe/London")
+SESSION = retry(requests.Session(), retries=5, backoff_factor=0.2)
+                
+class CacheItem:
+    def __init__(self, fetch_func, ttl_seconds, is_valid_func=None):
+        self.fetch_func = fetch_func
+        self.ttl = ttl_seconds
+        self.value = None
+        self.last_updated = None
+        self.is_valid = is_valid_func or (lambda x: x is not None)
+
+    def get(self, force_refresh=False):
+        now = time.time()
+
+        expired = (
+            self.value is None
+            or self.last_updated is None
+            or (now - self.last_updated) > self.ttl
+        )
+
+        if expired or force_refresh:
+            try:
+                new_value = self.fetch_func()
+
+                if self.is_valid(new_value):
+                    self.value = new_value
+                    self.last_updated = now
+                else:
+                    print("Invalid data received, keeping old cache")
+
+            except Exception as e:
+                print(f"Cache fetch failed: {e}")
+                # keep old value
+
+        return self.value
 
 def weather_code_to_icon(code):
     if code == 0:
@@ -34,82 +71,84 @@ def weather_code_to_icon(code):
         return "cloud"
 
 def fetch_weather():
-    import openmeteo_requests
-    import requests_cache
-    from retry_requests import retry
-    from datetime import datetime, timezone
 
-    # Setup API client
-    cache_session = requests_cache.CachedSession('.cache', expire_after=3600)
-    retry_session = retry(cache_session, retries=5, backoff_factor=0.2)
-    openmeteo = openmeteo_requests.Client(session=retry_session)
 
-    url = "https://api.open-meteo.com/v1/forecast"
-    params = {
-        "latitude": 51.4136,
-        "longitude": -0.7505,
-        "daily": ["temperature_2m_max", "temperature_2m_min"],
-        "hourly": ["temperature_2m", "precipitation_probability", "weather_code"],
-        "current": ["temperature_2m", "precipitation_probability", "weather_code"],
-        "timezone": "GMT",
-        "forecast_days": 2,
-    }
+    try:
+        openmeteo = openmeteo_requests.Client(session=SESSION)
 
-    response = openmeteo.weather_api(url, params=params)[0]
+        url = "https://api.open-meteo.com/v1/forecast"
+        params = {
+            "latitude": 51.4136,
+            "longitude": -0.7505,
+            "daily": ["temperature_2m_max", "temperature_2m_min"],
+            "hourly": ["temperature_2m", "precipitation_probability", "weather_code"],
+            "current": ["temperature_2m", "precipitation_probability", "weather_code"],
+            "timezone": "GMT",
+            "forecast_days": 2,
+        }
 
-    # -------- Current --------
-    current = response.Current()
-    current_temp = round(current.Variables(0).Value())
-    current_rain = round(current.Variables(1).Value())
-    current_code = int(current.Variables(2).Value())
+        response = openmeteo.weather_api(url, params=params)[0]
 
-    # -------- Daily --------
-    daily = response.Daily()
-    max_temp = round(daily.Variables(0).ValuesAsNumpy()[0])
-    min_temp = round(daily.Variables(1).ValuesAsNumpy()[0])
+        # -------- Current --------
+        current = response.Current()
+        current_temp = round(current.Variables(0).Value())
+        current_rain = round(current.Variables(1).Value())
+        current_code = int(current.Variables(2).Value())
 
-    # -------- Hourly --------
-    hourly = response.Hourly()
+        # -------- Daily --------
+        daily = response.Daily()
+        max_temp = round(daily.Variables(0).ValuesAsNumpy()[0])
+        min_temp = round(daily.Variables(1).ValuesAsNumpy()[0])
 
-    times = hourly.Time()
-    interval = hourly.Interval()
+        # -------- Hourly --------
+        hourly = response.Hourly()
 
-    temps = hourly.Variables(0).ValuesAsNumpy()
-    rain = hourly.Variables(1).ValuesAsNumpy()
-    codes = hourly.Variables(2).ValuesAsNumpy()
+        times = hourly.Time()
+        interval = hourly.Interval()
 
-    # Convert timestamps → datetime
-    now = datetime.now(timezone.utc)
+        temps = hourly.Variables(0).ValuesAsNumpy()
+        rain = hourly.Variables(1).ValuesAsNumpy()
+        codes = hourly.Variables(2).ValuesAsNumpy()
 
-    forecast = []
+        # Convert timestamps → datetime
+        now = datetime.now(timezone.utc)
 
-    for i in range(len(temps)):
-        dt = datetime.fromtimestamp(times + i * interval, tz=timezone.utc)
+        forecast = []
 
-        if dt <= now:
-            continue  # skip past hours
+        for i in range(len(temps)):
+            dt = datetime.fromtimestamp(times + i * interval, tz=timezone.utc)
 
-        forecast.append({
-            "time": dt.strftime("%H:%M"),
-            "temp": round(temps[i]),
-            "rain": round(rain[i]),
-            "condition": weather_code_to_icon(int(codes[i]))
-        })
+            if dt <= now:
+                continue  # skip past hours
 
-        if len(forecast) == 5:
-            break
+            forecast.append({
+                "time": dt.strftime("%H:%M"),
+                "temp": round(temps[i]),
+                "rain": round(rain[i]),
+                "condition": weather_code_to_icon(int(codes[i]))
+            })
 
-    return {
-        "current_temp": current_temp,
-        "max_temp": max_temp,
-        "min_temp": min_temp,
-        "rain_chance": current_rain,
-        "condition": weather_code_to_icon(current_code),
-        "forecast": forecast
-    }
+            if len(forecast) == 5:
+                break
+
+        return {
+            "current_temp": current_temp,
+            "max_temp": max_temp,
+            "min_temp": min_temp,
+            "rain_chance": current_rain,
+            "condition": weather_code_to_icon(current_code),
+            "forecast": forecast
+        }
+    except Exception as e:
+        print(f"[WEATHER ERROR] {e}")
+        return None
 
 def fetch_calendar_events():
     urls = os.getenv("GOOGLE_CALENDAR_URLS").split(",")
+
+    if not urls:
+        print("No calendar URLs set")
+        return []
 
     now = datetime.now(timezone.utc)
     today = now.date()
@@ -118,96 +157,109 @@ def fetch_calendar_events():
     today_events = []
     tomorrow_events = []
 
-    for url in urls:
-        response = requests.get(url.strip())
-        cal = Calendar.from_ical(response.text)
+    try:
+        for url in urls:
+            response = requests.get(url.strip(), timeout=10)
+            cal = Calendar.from_ical(response.text)
 
-        for component in cal.walk():
-            if component.name != "VEVENT":
-                continue
+            for component in cal.walk():
+                if component.name != "VEVENT":
+                    continue
 
-            start = component.get("dtstart").dt
-            end = component.get("dtend").dt
-            title = str(component.get("summary"))
+                start = component.get("dtstart").dt
+                end = component.get("dtend").dt
+                title = str(component.get("summary"))
 
-            LOCAL_TZ = ZoneInfo("Europe/London")
+                is_all_day = False
 
-            is_all_day = False
-
-            # --- START ---
-            if isinstance(start, datetime):
-                if start.tzinfo is None:
-                    start = start.replace(tzinfo=timezone.utc)
+                # --- START ---
+                if isinstance(start, datetime):
+                    if start.tzinfo is None:
+                        start = start.replace(tzinfo=timezone.utc)
+                    else:
+                        start = start.astimezone(timezone.utc)
                 else:
-                    start = start.astimezone(timezone.utc)
-            else:
-                # all-day event
-                is_all_day = True
-                start = datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc)
+                    # all-day event
+                    is_all_day = True
+                    start = datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc)
 
-            # --- END ---
-            if isinstance(end, datetime):
-                if end.tzinfo is None:
-                    end = end.replace(tzinfo=timezone.utc)
+                # --- END ---
+                if isinstance(end, datetime):
+                    if end.tzinfo is None:
+                        end = end.replace(tzinfo=timezone.utc)
+                    else:
+                        end = end.astimezone(timezone.utc)
                 else:
-                    end = end.astimezone(timezone.utc)
-            else:
-                end = datetime.combine(end, datetime.min.time(), tzinfo=timezone.utc)
+                    end = datetime.combine(end, datetime.min.time(), tzinfo=timezone.utc)
 
-            # --- FIX ALL-DAY EVENTS ---
-            if is_all_day:
-                # Google gives end as next-day midnight → subtract a tiny bit
-                end = end - timedelta(seconds=1)
-    
-            event_date = start.date()
+                # --- FIX ALL-DAY EVENTS ---
+                if is_all_day:
+                    # Google gives end as next-day midnight → subtract a tiny bit
+                    end = end - timedelta(seconds=1)
+        
+                event_date = start.date()
 
-            # --- TODAY (including ongoing multi-day events) ---
-            if start.date() <= today <= end.date() and end > now:
-                today_events.append({
-                    "title": title,
-                    "start": start,
-                    "end": end,
-                    "all_day": is_all_day
+                # --- TODAY (including ongoing multi-day events) ---
+                if start.date() <= today <= end.date() and end > now:
+                    today_events.append({
+                        "title": title,
+                        "start": start,
+                        "end": end,
+                        "all_day": is_all_day
+                    })
+
+                # --- TOMORROW ---
+                elif start.date() <= tomorrow <= end.date():
+                    tomorrow_events.append({
+                        "title": title,
+                        "start": start,
+                        "end": end,
+                        "all_day": is_all_day
+                    })
+
+        # Sort
+        today_events.sort(key=lambda x: x["start"])
+        tomorrow_events.sort(key=lambda x: x["start"])
+
+        # Format
+        formatted = []
+
+        # --- TODAY ---
+        for event in today_events:
+            if event["all_day"]:
+                formatted.append({
+                    "title": event["title"],
+                    "time": "All Day"
                 })
+            else:
+                formatted.append({
+                    "title": event["title"],
+                    "time": f'{event["start"].astimezone(LOCAL_TZ).strftime("%H:%M")} - {event["end"].astimezone(LOCAL_TZ).strftime("%H:%M")}'
+                })
+
+        # --- DIVIDER ---
+        if tomorrow_events and len(formatted) < 4:
+            formatted.append({
+                "divider": "Tomorrow"
+            })
 
             # --- TOMORROW ---
-            elif start.date() <= tomorrow <= end.date():
-                tomorrow_events.append({
-                    "title": title,
-                    "start": start,
-                    "end": end,
-                    "all_day": is_all_day
-                })
+            for event in tomorrow_events:
+                if event["all_day"]:
+                    formatted.append({
+                        "title": event["title"],
+                        "time": "All Day"
+                    })
+                else:
+                    formatted.append({
+                        "title": event["title"],
+                        "time": f'{event["start"].astimezone(LOCAL_TZ).strftime("%H:%M")} - {event["end"].astimezone(LOCAL_TZ).strftime("%H:%M")}'
+                    })
 
-    # Sort
-    today_events.sort(key=lambda x: x["start"])
-    tomorrow_events.sort(key=lambda x: x["start"])
-
-    combined = today_events + tomorrow_events
-
-    # Format
-    formatted = []
-
-    for event in combined[:5]:
-        if event["all_day"]:
-            formatted.append({
-                "title": event["title"],
-                "start": "All Day",
-                "end": "",
-                "all_day": True
-            })
-        else:
-            start_local = event["start"].astimezone(LOCAL_TZ)
-            end_local = event["end"].astimezone(LOCAL_TZ)
-
-            formatted.append({
-                "title": event["title"],
-                "start": start_local.strftime("%H:%M"),
-                "end": end_local.strftime("%H:%M"),
-                "all_day": False
-            })
-
-    return formatted
+        return formatted[:5]
+    except Exception as e:
+        print(f"[CALENDAR ERROR] {e}")
+        return []
 
 def fetch_room_info():
     try:
@@ -222,53 +274,79 @@ def fetch_room_info():
 
     except requests.RequestException as e:
         print(f"[ESP32 ERROR] {e}")
-
-        # fallback so your UI doesn't explode
-        return {
-            "temperature": None,
-            "humidity": None,
-        }
+        return None
 
 def fetch_system_info():
-    # Implementation for fetching system information
+    try:    
+        cpu_usage = psutil.cpu_percent(interval=None)
+        memory_usage = psutil.virtual_memory().percent
+        
+        temps = psutil.sensors_temperatures()
+        cpu_temp = None
+        if temps:
+            for name in temps:
+                if temps[name]:
+                    cpu_temp = temps[name][0].current
+                    break
+        cpu_temperature = round(cpu_temp, 2) if cpu_temp else None
+        
+        uptime_seconds = time.time() - psutil.boot_time()
+        uptime = time.strftime("%H:%M", time.gmtime(uptime_seconds))
+        
+        addrs = psutil.net_if_addrs()
+        ip_address = None
+        for iface in ["wlan0", "eth0"]:
+            if iface in addrs:
+                for addr in addrs[iface]:
+                    if addr.family == 2:  # AF_INET
+                        ip_address = addr.address
+                        break
+        ip_address = ip_address.split(".")[-1] if ip_address else "?"
+
+        disk_usage = psutil.disk_usage('/').percent
+        
+        return {
+            "cpu_usage": cpu_usage,
+            "memory_usage": memory_usage,
+            "cpu_temperature": cpu_temperature,
+            "uptime": uptime,
+            "ip_address": ip_address,
+            "disk_usage": disk_usage,
+        }
+    except Exception as e:
+        print(f"[SYSTEM INFO ERROR] {e}")
+        return None
     
-    cpu_usage = psutil.cpu_percent(interval=1)
-    memory_usage = psutil.virtual_memory().percent
-    cpu_temperature = round(psutil.sensors_temperatures()['cpu_thermal'][0].current, 2)
-    uptime_seconds = time.time() - psutil.boot_time()
-    uptime = time.strftime("%H:%M", time.gmtime(uptime_seconds))
-    ip_address = psutil.net_if_addrs()['wlan0'][0].address
-    ip_address = ip_address.split(".")[-1]
-    disk_usage = psutil.disk_usage('/').percent
-    
-    return {
-        "cpu_usage": cpu_usage,
-        "memory_usage": memory_usage,
-        "cpu_temperature": cpu_temperature,
-        "uptime": uptime,
-        "ip_address": ip_address,
-        "disk_usage": disk_usage,
-    }
+def valid_weather(data):
+    return data and data.get("current_temp") is not None
+
+def valid_calendar(data):
+    return isinstance(data, list)  # empty list is fine
+
+def valid_room(data):
+    return data and data.get("temperature") is not None
+
+def valid_system(data):
+    return data and data.get("cpu_usage") is not None
+
+cache = {
+    "weather": CacheItem(fetch_weather, 3600, valid_weather),  # 1 hour
+    "calendar_events": CacheItem(fetch_calendar_events, 900, valid_calendar),  # 15 minutes
+    "room_info": CacheItem(fetch_room_info, 300, valid_room),  # 5 minutes
+    "system_info": CacheItem(fetch_system_info, 60, valid_system),  # 1 minute
+}
+
+def refresh_all():
+    for key, item in cache.items():
+        item.get(force_refresh=True)
 
 def return_data():
     return {
-        "weather": fetch_weather(),
-        "calendar_events": fetch_calendar_events(),
-        "room_info": fetch_room_info(),
-        "system_info": fetch_system_info(),
+        "weather": cache["weather"].get(),
+        "calendar_events": cache["calendar_events"].get(),
+        "room_info": cache["room_info"].get(),
+        "system_info": cache["system_info"].get(),
     }
-    
-def return_weather():
-    return fetch_weather()
-
-def return_calendar_events():
-    return fetch_calendar_events()
-
-def return_room_info():
-    return fetch_room_info()
-
-def return_system_info():
-    return fetch_system_info()
 
 if __name__ == "__main__":
     data = return_data()
