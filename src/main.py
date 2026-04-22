@@ -2,6 +2,9 @@ import sys
 import os
 from datetime import datetime
 import time
+import logging
+
+
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WAVESHARE_LIB = os.path.join(BASE_DIR, "lib")
@@ -13,6 +16,11 @@ from waveshare_epd import epd7in5h
 import renderer
 import api
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
+
 def setup():
     epd = epd7in5h.EPD()
     epd.init()
@@ -20,6 +28,7 @@ def setup():
     time.sleep(1)
     
     api.clear_all()
+    api.refresh_all()
     
     return epd
 
