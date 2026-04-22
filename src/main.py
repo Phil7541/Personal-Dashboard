@@ -18,6 +18,9 @@ def setup():
     epd.init()
     epd.Clear()
     time.sleep(1)
+    
+    api.clear_all()
+    
     return epd
 
 def sleep_until_next_minute(offset_seconds=0):

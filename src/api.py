@@ -51,6 +51,10 @@ class CacheItem:
                 # keep old value
 
         return self.value
+    
+    def clear(self):
+        self.value = None
+        self.last_updated = None
 
 def weather_code_to_icon(code):
     if code == 0:
@@ -118,7 +122,12 @@ def fetch_weather():
         for i in range(len(temps)):
             dt = datetime.fromtimestamp(times + i * interval, tz=timezone.utc)
 
-            if dt <= now:
+            now = datetime.now(timezone.utc)
+
+            next_hour = (now.replace(minute=0, second=0, microsecond=0)
+                        + timedelta(hours=1))
+
+            if dt <= next_hour:
                 continue  # skip past hours
 
             forecast.append({
@@ -166,8 +175,14 @@ def fetch_calendar_events():
                 if component.name != "VEVENT":
                     continue
 
-                start = component.get("dtstart").dt
-                end = component.get("dtend").dt
+                dtstart = component.get("dtstart")
+                dtend = component.get("dtend")
+
+                if not dtstart or not dtend:
+                    continue
+
+                start = dtstart.dt
+                end = dtend.dt
                 title = str(component.get("summary"))
 
                 is_all_day = False
@@ -274,7 +289,10 @@ def fetch_room_info():
 
     except requests.RequestException as e:
         print(f"[ESP32 ERROR] {e}")
-        return None
+        return {
+            "temperature": None,
+            "humidity": None,
+        }
 
 def fetch_system_info():
     try:    
@@ -339,6 +357,10 @@ cache = {
 def refresh_all():
     for key, item in cache.items():
         item.get(force_refresh=True)
+    
+def clear_all():
+    for key, item in cache.items():
+        item.clear()
 
 def return_data():
     return {
