@@ -278,7 +278,7 @@ def fetch_calendar_events():
 
 def fetch_room_info():
     try:
-        response = requests.get(f"http://{SENSOR_HUB_IP}/sht31", timeout=5)
+        response = requests.get(f"http://{SENSOR_HUB_IP}/sht31", timeout=10)
         response.raise_for_status()
         data = response.json()
 
