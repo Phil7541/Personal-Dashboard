@@ -45,10 +45,10 @@ class CacheItem:
                     self.value = new_value
                     self.last_updated = now
                 else:
-                    logging.warning("Invalid data received, keeping old cache")
+                    logging.warning(f"{self.fetch_func.__name__}: Invalid data received, keeping old cache")
 
             except Exception as e:
-                logging.error(f"Cache fetch failed: {e}")
+                logging.error(f"{self.fetch_func.__name__}: Cache fetch failed: {e}")
                 # keep old value
 
         return self.value
