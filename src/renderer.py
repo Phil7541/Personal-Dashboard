@@ -433,7 +433,7 @@ def draw_room_info_box(draw, image, data):
         width=BOX_BORDER_WEIGHT,
     )
 
-    if data['temperature'] is None or data['humidity'] is None:
+    if not data or data.get('temperature') is None:
         draw.text(
             ((x2 - x1) // 2 + x1, (y2 - y1) // 2 + y1),
             "No data",

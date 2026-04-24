@@ -42,6 +42,11 @@ def sleep_until_next_minute(offset_seconds=0):
 
     time.sleep(sleep_time)
     
+def handle_keyboard_interupt(epd):
+    epd.Clear()
+    epd.sleep()
+    exit
+    
 def test_render():
     data = api.return_data()
     image = renderer.render_dashboard(data)
@@ -57,14 +62,17 @@ if __name__ == "__main__":
     epd = setup()
 
     while True:
-        sleep_until_next_minute()
-        
-        now = datetime.now()
+        try:
+            sleep_until_next_minute()
+            
+            now = datetime.now()
 
-        if now.minute == 0:
-            api.cache["weather"].get(force_refresh=True)
+            if now.minute == 0:
+                api.cache["weather"].get(force_refresh=True)
 
-        api.refresh_all()
-        data = api.return_data()       
-        image = renderer.render_dashboard(data)
-        epd.display(epd.getbuffer(image))
+            api.refresh_all()
+            data = api.return_data()       
+            image = renderer.render_dashboard(data)
+            epd.display(epd.getbuffer(image))
+        except KeyboardInterrupt as e:
+            handle_keyboard_interupt(epd)
