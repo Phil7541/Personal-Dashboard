@@ -34,6 +34,8 @@ from waveshare_epd import epd7in5h
 import renderer
 import api
 
+logger = logging.getLogger(__name__)
+
 def setup():
     epd = epd7in5h.EPD()
     epd.init()
@@ -60,6 +62,7 @@ def sleep_until_next_minute(offset_seconds=0):
 def handle_keyboard_interupt(epd):
     epd.Clear()
     epd.sleep()
+    logger.info("Display Slept")
     exit
     
 def test_render():
@@ -75,6 +78,7 @@ def test_display():
 
 if __name__ == "__main__":
     epd = setup()
+    logger.info("Dashboard Started")
 
     while True:
         try:
@@ -90,4 +94,5 @@ if __name__ == "__main__":
             image = renderer.render_dashboard(data)
             epd.display(epd.getbuffer(image))
         except KeyboardInterrupt as e:
+            logger.warning("Detected Keyboard Interrupt")
             handle_keyboard_interupt(epd)
