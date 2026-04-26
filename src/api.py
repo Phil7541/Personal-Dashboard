@@ -10,6 +10,7 @@ from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo 
 import psutil
 import logging
+logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 env_path = os.path.join(BASE_DIR, "envs", "sensor_hub_ip.env")
@@ -45,10 +46,10 @@ class CacheItem:
                     self.value = new_value
                     self.last_updated = now
                 else:
-                    logging.warning(f"{self.fetch_func.__name__}: Invalid data received, keeping old cache")
+                    logger.warning(f"{self.fetch_func.__name__}: Invalid data received, keeping old cache")
 
             except Exception as e:
-                logging.error(f"{self.fetch_func.__name__}: Cache fetch failed: {e}")
+                logger.error(f"{self.fetch_func.__name__}: Cache fetch failed: {e}")
                 # keep old value
 
         return self.value
@@ -150,14 +151,14 @@ def fetch_weather():
             "forecast": forecast
         }
     except Exception as e:
-        logging.error(f"Weather fetch failed: {e}")
+        logger.error(f"Weather fetch failed: {e}")
         return None
 
 def fetch_calendar_events():
     urls = os.getenv("GOOGLE_CALENDAR_URLS").split(",")
 
     if not urls:
-        logging.warning("No calendar URLs set")
+        logger.warning("No calendar URLs set")
         return []
 
     now = datetime.now(timezone.utc)
@@ -274,7 +275,7 @@ def fetch_calendar_events():
 
         return formatted[:5]
     except Exception as e:
-        logging.error(f"Calendar fetch failed: {e}")
+        logger.error(f"Calendar fetch failed: {e}")
         return []
 
 def fetch_room_info():
@@ -289,7 +290,7 @@ def fetch_room_info():
         }
 
     except requests.RequestException as e:
-        logging.error(f"ESP32 request failed: {e}")
+        logger.error(f"ESP32 request failed: {e}")
         return {
             "temperature": None,
             "humidity": None,
@@ -333,7 +334,7 @@ def fetch_system_info():
             "disk_usage": disk_usage,
         }
     except Exception as e:
-        logging.error(f"System info fetch failed: {e}")
+        logger.error(f"System info fetch failed: {e}")
         return None
     
 def valid_weather(data):
@@ -373,4 +374,4 @@ def return_data():
 
 if __name__ == "__main__":
     data = return_data()
-    logging.debug(f"Fetched data: {data}")
+    logger.debug(f"Fetched data: {data}")

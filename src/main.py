@@ -3,10 +3,25 @@ import os
 from datetime import datetime
 import time
 import logging
+from logging.handlers import RotatingFileHandler
+
+LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+
+LOG_FILE = os.path.join(LOG_DIR, "dashboard.log")
+
+file_handler = RotatingFileHandler(
+    LOG_FILE,
+    maxBytes=1_000_000,  # 1MB
+    backupCount=3        # keep 3 old logs
+)
+
+stream_handler = logging.StreamHandler()
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[file_handler, stream_handler]
 )
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
