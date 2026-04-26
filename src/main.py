@@ -63,7 +63,7 @@ def handle_keyboard_interupt(epd):
     epd.Clear()
     epd.sleep()
     logger.info("Display Slept")
-    exit
+    exit()
     
 def test_render():
     data = api.return_data()
