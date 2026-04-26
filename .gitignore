@@ -6,5 +6,5 @@ images/
 examples/
 src/envs/
 .cache.sqlite
-logs/
+src/logs/
 lib/*
