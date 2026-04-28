@@ -1,0 +1,11 @@
+Pillow
+requests
+openmeteo-requests
+retry-requests
+python-dotenv
+icalendar
+psutil
+numpy
+spidev
+RPi.GPIO
+gpiozero
