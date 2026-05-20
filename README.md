@@ -3,7 +3,7 @@
 A lightweight Raspberry Pi-powered dashboard designed for a 7.5" Waveshare e-paper display.
 The project provides an always-on wall display for weather, calendar events, room sensor data, and system statistics while remaining low-power and distraction-free.
 
-![Platform](https://img.shields.io/badge/platform-Raspberry-Pi-green)
+![Platform](https://img.shields.io/badge/platform-RaspberryPi-green)
 ![Language](https://img.shields.io/badge/language-Python-blue)
 
 \
